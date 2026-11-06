@@ -3,15 +3,14 @@ import * as Sharing from 'expo-sharing';
 
 import { comparableStatusLabel, confidenceLabel, formatRange, formatUsd } from './format';
 import { photoBase64 } from './images';
-import type { Item } from './types';
+import type { Appraisal, Item } from './types';
 
 const esc = (s: string) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
-async function buildHtml(item: Item): Promise<string> {
-  const a = item.appraisal;
+async function buildHtml(item: Item, a: Appraisal): Promise<string> {
   const photos = (
-    await Promise.all((item.photos ?? []).slice(0, 4).map((name) => photoBase64(item.id, name)))
+    await Promise.all((item.photoPaths ?? []).slice(0, 4).map((path) => photoBase64(path)))
   ).filter((b): b is string => !!b);
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const row = (label: string, value: string) =>
@@ -43,6 +42,11 @@ async function buildHtml(item: Item): Promise<string> {
   <h2>Estimated resale value (USD)</h2>
   <div class="value">${esc(formatRange(a.value_low, a.value_high))}</div>
   <div class="muted">${esc(confidenceLabel[a.value_confidence])} · ${esc(a.value_basis)}</div>
+  <table style="margin-top:10px">
+    ${row('Quick sale', formatUsd(a.quick_sale_value))}
+    ${row('Estimated cost to replace', formatUsd(a.replacement_value))}
+    ${a.evidence?.sold_count ? row('Verified sold prices', `${a.evidence.sold_count}${a.evidence.median_sold ? `, median ${formatUsd(a.evidence.median_sold)}` : ''}`) : ''}
+  </table>
 
   <h2>Description</h2>
   <p style="font-size:13px; line-height:1.5">${esc(a.summary)}</p>
@@ -66,6 +70,8 @@ async function buildHtml(item: Item): Promise<string> {
       : ''
   }
 
+  ${a.lookalike_warning ? `<h2>Look-alike caution</h2><p style="font-size:13px; line-height:1.5">${esc(a.lookalike_warning)}</p>` : ''}
+
   ${a.value_factors.length ? `<h2>What affects the value</h2><ul>${a.value_factors.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}
 
   <p class="disclaimer">This report is an automated estimate based on the photos provided and publicly available
@@ -75,8 +81,8 @@ async function buildHtml(item: Item): Promise<string> {
 </body></html>`;
 }
 
-export async function createAndShareReport(item: Item) {
-  const html = await buildHtml(item);
+export async function createAndShareReport(item: Item, a: Appraisal) {
+  const html = await buildHtml(item, a);
   const { uri } = await Print.printToFileAsync({ html });
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf', dialogTitle: 'Item report' });

@@ -9,7 +9,8 @@ import { Button, Pill, T } from '@/components/ui';
 import { Colors, MaxContentWidth, Radius, Space } from '@/constants/theme';
 import { useApp } from '@/context/app-context';
 import { formatRange, formatUsd } from '@/lib/format';
-import { photoExists, photoUri } from '@/lib/images';
+import { exportCollectionCsv } from '@/lib/export';
+import { usePhotoUrl } from '@/lib/images';
 import { subscribeItems } from '@/lib/items';
 import type { Item } from '@/lib/types';
 
@@ -31,10 +32,10 @@ export default function Collection() {
   }, [user]);
 
   const totals = useMemo(() => {
-    const list = (items ?? []).filter((i) => i.appraisal.is_identifiable);
+    const list = (items ?? []).filter((i) => i.appraisal?.is_identifiable);
     return {
-      low: list.reduce((s, i) => s + i.appraisal.value_low, 0),
-      high: list.reduce((s, i) => s + i.appraisal.value_high, 0),
+      low: list.reduce((s, i) => s + (i.appraisal?.value_low ?? 0), 0),
+      high: list.reduce((s, i) => s + (i.appraisal?.value_high ?? 0), 0),
       count: items?.length ?? 0,
     };
   }, [items]);
@@ -55,6 +56,12 @@ export default function Collection() {
         <T style={{ color: '#D8CDBE' }}>
           {totals.count} {totals.count === 1 ? 'item' : 'items'}
         </T>
+        {isPro && totals.count ? (
+          <Pressable onPress={() => exportCollectionCsv(items ?? []).catch(() => {})} accessibilityRole="button" style={styles.exportRow}>
+            <Ionicons name="download-outline" size={16} color={Colors.brassTint} />
+            <T style={{ color: Colors.brassTint, fontWeight: '600' }}>Export spreadsheet</T>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -96,27 +103,36 @@ export default function Collection() {
 
 function Tile({ item, size }: { item: Item; size: number }) {
   const a = item.appraisal;
-  const first = item.photos?.[0];
-  const uri = first && photoExists(item.id, first) ? photoUri(item.id, first) : null;
+  const uri = usePhotoUrl(item.photoPaths?.[0]);
   return (
     <Pressable
       onPress={() => router.push(`/item/${item.id}`)}
       style={({ pressed }) => [styles.tile, { width: size }, pressed && { opacity: 0.9 }]}
       accessibilityRole="button"
-      accessibilityLabel={`${a.item_name}, ${formatRange(a.value_low, a.value_high)}`}>
+      accessibilityLabel={a ? `${a.item_name}, ${formatRange(a.value_low, a.value_high)}` : item.status === 'failed' ? 'Scan failed' : 'Appraisal in progress'}>
       {uri ? (
-        <Image source={{ uri }} style={{ width: '100%', aspectRatio: 1 }} contentFit="cover" />
+        <Image source={{ uri }} style={{ width: '100%', aspectRatio: 1 }} contentFit="cover" transition={150} />
       ) : (
         <View style={[styles.noPhoto, { aspectRatio: 1 }]}>
           <Ionicons name="image-outline" size={28} color={Colors.muted} />
         </View>
       )}
       <View style={styles.tileBody}>
-        <T variant="heading" numberOfLines={2} style={{ fontSize: 15, lineHeight: 20 }}>
-          {a.item_name}
-        </T>
-        <T style={{ color: Colors.ink, fontWeight: '700' }}>{formatRange(a.value_low, a.value_high)}</T>
-        {a.needs_closeup ? <Pill label="Add close-up" tone="warn" icon="search" /> : null}
+        {a ? (
+          <>
+            <T variant="heading" numberOfLines={2} style={{ fontSize: 15, lineHeight: 20 }}>{a.item_name}</T>
+            <T style={{ color: Colors.ink, fontWeight: '700' }}>{formatRange(a.value_low, a.value_high)}</T>
+            {item.status === 'processing' ? <T variant="caption">Re-checking…</T> : null}
+            {a.needs_closeup && item.status !== 'processing' ? <Pill label="Add close-up" tone="warn" icon="search" /> : null}
+          </>
+        ) : item.status === 'failed' ? (
+          <T variant="caption">Couldn't finish. Tap for details.</T>
+        ) : (
+          <View style={styles.workingRow}>
+            <ActivityIndicator size="small" color={Colors.ink} />
+            <T variant="caption">Appraising…</T>
+          </View>
+        )}
       </View>
     </Pressable>
   );
@@ -128,6 +144,8 @@ const styles = StyleSheet.create({
   list: { padding: Space.lg, width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center', flexGrow: 1 },
   totalCard: { backgroundColor: Colors.ink, borderRadius: Radius.lg, padding: Space.xl, gap: Space.xs },
   totalValue: { color: '#fff', fontSize: 30, lineHeight: 38, fontWeight: '700' },
+  exportRow: { flexDirection: 'row', alignItems: 'center', gap: Space.xs, paddingTop: Space.sm },
+  workingRow: { flexDirection: 'row', alignItems: 'center', gap: Space.sm },
   lockedRow: { flexDirection: 'row', alignItems: 'center', gap: Space.sm, paddingVertical: Space.xs },
   empty: { alignItems: 'center', gap: Space.md, paddingVertical: Space.xxl, paddingHorizontal: Space.lg },
   tile: {

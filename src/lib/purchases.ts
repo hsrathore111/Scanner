@@ -16,7 +16,7 @@ export function purchasesAvailable(): boolean {
   return Platform.OS !== 'web' && !!REVENUECAT_API_KEY;
 }
 
-export function configurePurchases(appUserID: string) {
+export async function configurePurchases(appUserID: string) {
   if (!purchasesAvailable()) return;
   if (!configured) {
     if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.WARN);
@@ -24,7 +24,7 @@ export function configurePurchases(appUserID: string) {
     Purchases.configure({ apiKey: REVENUECAT_API_KEY, appUserID });
     configured = true;
   } else {
-    Purchases.logIn(appUserID).catch(() => {});
+    await Purchases.logIn(appUserID).catch(() => {});
   }
 }
 

@@ -1,39 +1,28 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, StyleSheet, TextInput, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { Bullet, Button, Card, Pill, Screen, T } from '@/components/ui';
+import { LEGAL } from '@/constants/config';
 import { Colors, Radius, Space } from '@/constants/theme';
 import { useApp } from '@/context/app-context';
-import { persistPhotos, pickPhoto, preparePhoto, type PhotoSource, type PreparedPhoto } from '@/lib/images';
-import { appraise, describeAppraiseError, newItemId, setItemPhotos } from '@/lib/items';
+import { pickPhoto, preparePhoto, type PhotoSource, type PreparedPhoto } from '@/lib/images';
+import { describeError, newItemId, startAppraisal } from '@/lib/items';
 
-const STATUS = [
-  'Looking closely at your photo…',
-  'Reading marks and labels…',
-  'Searching recent sold listings…',
-  'Checking auction results…',
-  'Working out a fair price range…',
-];
+const MAX_PHOTOS = 3;
 
 export default function Scan() {
-  const { user, isPro, freeScansLeft, canScan } = useApp();
-  const [photo, setPhoto] = useState<PreparedPhoto | null>(null);
+  const { user, isPro, freeScansLeft, canScan, aiConsent, giveAiConsent } = useApp();
+  const [photos, setPhotos] = useState<PreparedPhoto[]>([]);
   const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [statusIdx, setStatusIdx] = useState(0);
+  const [preparing, setPreparing] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [askConsent, setAskConsent] = useState(false);
 
-  useEffect(() => {
-    if (!busy) return;
-    const t = setInterval(() => setStatusIdx((i) => Math.min(i + 1, STATUS.length - 1)), 6000);
-    return () => clearInterval(t);
-  }, [busy]);
-
-  const choose = async (source: PhotoSource) => {
+  const add = async (source: PhotoSource) => {
     setError(null);
     if (!canScan) {
       router.push('/paywall');
@@ -42,61 +31,71 @@ export default function Scan() {
     try {
       const asset = await pickPhoto(source);
       if (!asset) return;
-      setPhoto(await preparePhoto(asset));
+      setPreparing(true);
+      const prepared = await preparePhoto(asset);
+      setPhotos((p) => [...p, prepared].slice(0, MAX_PHOTOS));
     } catch (e) {
-      if ((e as Error).message === 'CAMERA_PERMISSION_DENIED') {
-        setError('Camera access is off. Turn it on in Settings, or choose a photo from your library.');
-      } else {
-        setError('Could not open that photo. Try another one.');
-      }
+      setError(
+        (e as Error).message === 'CAMERA_PERMISSION_DENIED'
+          ? 'Camera access is off. Turn it on in Settings, or choose a photo from your library.'
+          : 'Could not open that photo. Try another one.',
+      );
+    } finally {
+      setPreparing(false);
     }
   };
 
   const run = async () => {
-    if (!user || !photo) return;
-    setStatusIdx(0);
-    setBusy(true);
+    if (!user || !photos.length) return;
+    if (!aiConsent) {
+      setAskConsent(true);
+      return;
+    }
+    setUploading(true);
     setError(null);
     const itemId = newItemId(user.uid);
     try {
-      await appraise(itemId, [photo], note.trim() || undefined);
-      const names = await persistPhotos(itemId, [photo]);
-      await setItemPhotos(user.uid, itemId, names).catch(() => {});
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      setPhoto(null);
+      await startAppraisal(itemId, photos, note.trim() || undefined);
+      setPhotos([]);
       setNote('');
       router.push(`/item/${itemId}`);
     } catch (e) {
-      const { message, limitReached } = describeAppraiseError(e);
+      const { message, limitReached } = describeError(e);
       if (limitReached) router.push('/paywall');
       else setError(message);
     } finally {
-      setBusy(false);
+      setUploading(false);
     }
   };
 
-  if (busy && photo) {
-    return (
-      <Screen edges={['top']} contentStyle={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <Image source={{ uri: photo.uri }} style={styles.busyPhoto} contentFit="cover" />
-        <ActivityIndicator size="large" color={Colors.ink} />
-        <T variant="heading" style={{ textAlign: 'center' }}>{STATUS[statusIdx]}</T>
-        <T variant="caption" style={{ textAlign: 'center' }}>This usually takes 20–60 seconds.</T>
-      </Screen>
-    );
-  }
+  const accept = async () => {
+    await giveAiConsent();
+    setAskConsent(false);
+  };
+
+  const footer = askConsent ? (
+    <View style={{ gap: Space.sm }}>
+      <T variant="heading">Before we look at your photos</T>
+      <T>
+        To identify your item, your photos and any note you add are sent to our servers and to Anthropic, which runs the
+        Claude AI that analyzes them. They're used to create your appraisal. Your photos are saved with your account until
+        you delete them.
+      </T>
+      <Pressable onPress={() => Linking.openURL(LEGAL.privacyUrl)} hitSlop={8}>
+        <T variant="caption" style={{ textDecorationLine: 'underline' }}>Read the privacy policy</T>
+      </Pressable>
+      <Button title="Agree and continue" onPress={accept} />
+      <Button title="Not now" variant="ghost" onPress={() => setAskConsent(false)} />
+    </View>
+  ) : photos.length ? (
+    <View style={{ gap: Space.sm }}>
+      <Button title="Find out what it's worth" icon="sparkles" onPress={run} loading={uploading} />
+      <Button title="Start over" variant="ghost" onPress={() => setPhotos([])} disabled={uploading} />
+    </View>
+  ) : null;
 
   return (
-    <Screen
-      edges={['top']}
-      footer={
-        photo ? (
-          <View style={{ gap: Space.sm }}>
-            <Button title="Find out what it's worth" icon="sparkles" onPress={run} />
-            <Button title="Retake" variant="ghost" onPress={() => setPhoto(null)} />
-          </View>
-        ) : null
-      }>
+    <Screen edges={['top']} footer={footer}>
       <View style={styles.headerRow}>
         <T variant="title">Scan an item</T>
         {isPro ? (
@@ -106,15 +105,34 @@ export default function Scan() {
         )}
       </View>
 
-      {photo ? (
+      {photos.length ? (
         <>
-          <Image source={{ uri: photo.uri }} style={styles.preview} contentFit="cover" />
+          <View style={styles.thumbs}>
+            {photos.map((p, i) => (
+              <View key={p.uri} style={styles.thumbWrap}>
+                <Image source={{ uri: p.uri }} style={styles.thumb} contentFit="cover" />
+                <Pressable
+                  accessibilityLabel="Remove photo"
+                  hitSlop={8}
+                  style={styles.remove}
+                  onPress={() => setPhotos((list) => list.filter((_, idx) => idx !== i))}>
+                  <Ionicons name="close" size={14} color="#fff" />
+                </Pressable>
+              </View>
+            ))}
+            {photos.length < MAX_PHOTOS ? (
+              <Pressable style={[styles.thumbWrap, styles.addThumb]} onPress={() => add('camera')} accessibilityRole="button" accessibilityLabel="Add another photo">
+                {preparing ? <ActivityIndicator color={Colors.ink} /> : <Ionicons name="add" size={28} color={Colors.brassDark} />}
+              </Pressable>
+            ) : null}
+          </View>
+          <T variant="caption">Add the underside, a label or a maker's mark for a sharper answer.</T>
           <Card>
             <T variant="heading">Anything we should know? (optional)</T>
             <TextInput
               value={note}
               onChangeText={setNote}
-              placeholder="e.g. 'Marked Rookwood on the bottom', 'about 10 inches tall', 'belonged to my grandmother'"
+              placeholder="e.g. 'Marked Rookwood on the bottom', 'about 10 inches tall', 'came from my grandmother in Ohio'"
               placeholderTextColor={Colors.muted}
               multiline
               maxLength={500}
@@ -125,16 +143,15 @@ export default function Scan() {
       ) : (
         <>
           <View style={styles.cameraBox}>
-            <Ionicons name="camera-outline" size={48} color={Colors.brassDark} />
+            {preparing ? <ActivityIndicator size="large" color={Colors.ink} /> : <Ionicons name="camera-outline" size={48} color={Colors.brassDark} />}
             <T style={{ textAlign: 'center' }}>Fill the frame with the whole item, in good light.</T>
           </View>
-          <Button title="Take a photo" icon="camera" onPress={() => choose('camera')} />
-          <Button title="Choose from library" icon="images-outline" variant="secondary" onPress={() => choose('library')} />
-
+          <Button title="Take a photo" icon="camera" onPress={() => add('camera')} />
+          <Button title="Choose from library" icon="images-outline" variant="secondary" onPress={() => add('library')} />
           <Card>
             <T variant="heading">For the best result</T>
             <Bullet>Photograph against a plain background.</Bullet>
-            <Bullet>Show any maker's mark, signature, label or stamp. We may ask for a close-up next.</Bullet>
+            <Bullet>Show any maker's mark, signature, label or stamp. You can add up to {MAX_PHOTOS} photos.</Bullet>
             <Bullet>Include chips, cracks or wear. Condition changes the price a lot.</Bullet>
           </Card>
         </>
@@ -166,8 +183,21 @@ const styles = StyleSheet.create({
     gap: Space.md,
     padding: Space.xl,
   },
-  preview: { width: '100%', aspectRatio: 1, borderRadius: Radius.lg, backgroundColor: Colors.surfaceAlt },
-  busyPhoto: { width: 180, height: 180, borderRadius: Radius.lg, marginBottom: Space.lg },
+  thumbs: { flexDirection: 'row', gap: Space.sm },
+  thumbWrap: { flex: 1, maxWidth: '33%', aspectRatio: 1, borderRadius: Radius.md, overflow: 'hidden' },
+  thumb: { width: '100%', height: '100%', backgroundColor: Colors.surfaceAlt },
+  addThumb: { backgroundColor: Colors.brassTint, alignItems: 'center', justifyContent: 'center' },
+  remove: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.overlay,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   input: {
     minHeight: 72,
     borderRadius: Radius.sm,

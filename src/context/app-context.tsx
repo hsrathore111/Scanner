@@ -9,6 +9,7 @@ import { auth, db } from '@/lib/firebase';
 import { configurePurchases, getCustomerInfo, isPro as hasPro, onCustomerInfo } from '@/lib/purchases';
 
 const ONBOARDED_KEY = 'heirloom.onboarded.v1';
+const AI_CONSENT_KEY = 'heirloom.ai-consent.v1';
 
 type AppState = {
   ready: boolean;
@@ -23,6 +24,9 @@ type AppState = {
   onboarded: boolean;
   completeOnboarding: () => Promise<void>;
   retryAuth: () => void;
+  /** Apple guideline 5.1.2(i): explicit permission before photos go to a third-party AI service. */
+  aiConsent: boolean;
+  giveAiConsent: () => Promise<void>;
 };
 
 const Ctx = createContext<AppState | null>(null);
@@ -35,11 +39,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [scansUsed, setScansUsed] = useState(0);
   const [onboarded, setOnboarded] = useState<boolean | null>(null);
   const [authAttempt, setAuthAttempt] = useState(0);
+  const [aiConsent, setAiConsent] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem(ONBOARDED_KEY)
       .then((v) => setOnboarded(v === '1'))
       .catch(() => setOnboarded(false));
+    AsyncStorage.getItem(AI_CONSENT_KEY)
+      .then((v) => setAiConsent(v === '1'))
+      .catch(() => {});
   }, []);
 
   // Anonymous Firebase account: no sign-up friction. The uid doubles as the RevenueCat user id.
@@ -50,6 +58,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setAuthChecked(true);
         return;
       }
+      setUser(null);
       signInAnonymously(auth)
         .then(() => setAuthError(null))
         .catch((e) => {
@@ -61,15 +70,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!user) return;
-    configurePurchases(user.uid);
-    getCustomerInfo().then((info) => info && setCustomerInfo(info)).catch(() => {});
-    const offInfo = onCustomerInfo(setCustomerInfo);
+    let offInfo = () => {};
+    let live = true;
+    configurePurchases(user.uid)
+      .then(() => {
+        if (!live) return;
+        offInfo = onCustomerInfo(setCustomerInfo);
+        return getCustomerInfo().then((info) => live && info && setCustomerInfo(info));
+      })
+      .catch(() => {});
     const offUser = onSnapshot(
       doc(db, 'users', user.uid),
       (snap) => setScansUsed((snap.data()?.scanCount as number | undefined) ?? 0),
       () => {},
     );
     return () => {
+      live = false;
       offInfo();
       offUser();
     };
@@ -78,6 +94,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const completeOnboarding = useCallback(async () => {
     setOnboarded(true);
     await AsyncStorage.setItem(ONBOARDED_KEY, '1').catch(() => {});
+  }, []);
+
+  const giveAiConsent = useCallback(async () => {
+    setAiConsent(true);
+    await AsyncStorage.setItem(AI_CONSENT_KEY, '1').catch(() => {});
   }, []);
 
   const retryAuth = useCallback(() => {
@@ -101,8 +122,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       onboarded: !!onboarded,
       completeOnboarding,
       retryAuth,
+      aiConsent,
+      giveAiConsent,
     };
-  }, [authChecked, onboarded, user, authError, customerInfo, scansUsed, completeOnboarding, retryAuth]);
+  }, [authChecked, onboarded, user, authError, customerInfo, scansUsed, completeOnboarding, retryAuth, aiConsent, giveAiConsent]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

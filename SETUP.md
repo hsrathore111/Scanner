@@ -1,107 +1,94 @@
-# Heirloom: setup and testing
+# Heirloom: setup and launch (iPhone first)
 
-Photograph an old item to learn what it is, what it may be worth (a range with confidence and real comparable sales),
-and where to sell it. Built with Expo (SDK 58), Firebase (Auth, Firestore, Functions), RevenueCat and Claude.
+Heirloom identifies old items from photos and shows a realistic value backed by verified sold prices.
+Stack: Expo SDK 58, Firebase (Auth, Firestore, Storage, Functions, Hosting), RevenueCat, Claude.
 
 ```
-src/app/            screens (expo-router)
-  onboarding.tsx    3-step intro, then paywall
-  paywall.tsx       RevenueCat subscription paywall (custom UI)
-  (tabs)/index      Collection + total value (Pro)
-  (tabs)/scan       Take/choose photo -> appraisal
-  (tabs)/settings   Plan, restore, legal
-  item/[id]         Result: value range, confidence, comparables, close-up request,
-                    where to sell (Pro), PDF report (one-time IAP)
-src/lib/            firebase, purchases, images, items (API), report (PDF)
-functions/src/      appraiseItem callable: scan limits, RevenueCat check, Claude + web search
-firestore.rules     users can't edit counters or appraisals
+src/app/            screens: onboarding, paywall, (tabs)/index, scan, settings, item/[id]
+src/lib/            firebase, purchases, images, items, account, report (PDF), export (CSV)
+functions/src/      index.ts (scan limits, background job, purchases, deletion)
+                    evidence.ts (code check on model values; `npm test` in functions/)
+site/               privacy, terms and support pages (Firebase Hosting)
+store/app-store.md  listing text, privacy answers, review notes, launch checklist
 ```
 
-## How money works
+How a scan works: the app calls `startAppraisal`, which reserves a scan and stores the photos. A background function then
+calls Claude and writes the result to Firestore, so it finishes even if the user leaves the app. A failed or unusable scan
+is refunded. Comparables are kept only if their URL really appeared in search results, and code lowers the confidence when
+verified sold prices are missing or below the estimate.
 
-| What | Type | Suggested price | ID |
-|---|---|---|---|
-| Heirloom Pro, yearly (3-day free trial) | Auto-renewing subscription | $39.99/yr | `heirloom_pro_annual` |
-| Heirloom Pro, weekly | Auto-renewing subscription | $6.99/wk | `heirloom_pro_weekly` |
-| PDF report for one item | Consumable IAP | $4.99 | `heirloom_item_report` |
+## 1. Firebase (new project, same Google account as FitHit)
 
-- Free: 3 scans (enforced on the server), with identification, value range, confidence and comparables.
-- Pro (entitlement `pro`): unlimited scans (25/day cost guard), collection total value, selling guidance.
-- A close-up re-check of the same item is free (up to 2 per item).
+1. https://console.firebase.google.com → **Add project** → `heirloom`.
+2. Upgrade to the **Blaze** plan.
+3. **Authentication → Sign-in method**: enable **Anonymous** and **Apple**. For a native iOS app, Apple needs no Services ID:
+   enable it and save.
+4. **Firestore Database → Create database**, production mode, location `nam5`.
+5. **Storage → Get started**, production mode, same location.
+6. **Project settings → Your apps → Web** → register → copy the values into `.env` (copy `.env.example`).
+7. Put the project id in `.firebaserc`.
 
-## 1. Firebase (same Google account as FitHit, but a NEW project)
+## 2. Backend
 
-1. https://console.firebase.google.com → **Add project** → name it `heirloom`.
-2. Switch to the **Blaze** plan (Functions need it to call external APIs; the free tier still applies).
-3. **Build → Authentication → Sign-in method → Anonymous → Enable**.
-4. **Build → Firestore Database → Create database** (production mode, location `nam5 (us-central)`).
-5. **Project settings → Your apps → Web (</>)** → register → copy the config values into `.env`
-   (copy `.env.example` to `.env`).
-6. Put your project id in `.firebaserc`.
-
-## 2. Backend secrets and deploy
+Replace `SUPPORT_EMAIL`, `OPERATOR_NAME` and `LAST_UPDATED` in `site/*.html` first, then:
 
 ```bash
 npx firebase-tools login
-cd functions && npm install && cd ..
-
-# Anthropic API key from https://console.anthropic.com/settings/keys
-npx firebase-tools functions:secrets:set ANTHROPIC_API_KEY
-
-# RevenueCat SECRET key (Project settings → API keys → + New secret key, v1).
-# If you skip it, everyone is treated as a free user.
-npx firebase-tools functions:secrets:set REVENUECAT_SECRET_KEY
-
-npx firebase-tools deploy --only functions,firestore:rules
+cd functions && npm install && npm test && cd ..
+npx firebase-tools functions:secrets:set ANTHROPIC_API_KEY       # console.anthropic.com/settings/keys
+npx firebase-tools functions:secrets:set REVENUECAT_SECRET_KEY   # RevenueCat → API keys → new secret key (v1)
+npx firebase-tools deploy --only functions,firestore:rules,storage,hosting
 ```
 
-Each scan is one Claude Opus 5.5 call with up to 5 web searches. Check the actual cost per scan in the Anthropic
-console after your first test scans, then adjust `PRO_DAILY_SCANS` / `FREE_SCANS` in `functions/src/index.ts`
-(and `src/constants/config.ts`).
+Without the RevenueCat secret, every user counts as free and report purchases can't be confirmed.
 
-## 3. RevenueCat (project 7e22306b)
+Set a monthly limit in the Anthropic console. Each scan is one Claude Opus 5.5 call with up to 5 web searches, so measure
+the real cost per scan on your first tests, then tune `FREE_SCANS` and `PRO_DAILY_SCANS`. Free scans are tied to an
+anonymous account, so someone reinstalling the app gets more; watch for this after launch.
 
-1. **Apps → + New**: Google Play app with package `com.himmat.heirloom` (and later an App Store app with bundle id
-   `com.himmat.heirloom`). Connect the Play service account the same way as FitHit.
-2. **Entitlements → + New** → identifier `pro`.
-3. **Products**: add `heirloom_pro_annual` and `heirloom_pro_weekly` → attach both to `pro`. Add `heirloom_item_report`
-   (not attached to any entitlement).
-4. **Offerings → default** → packages **Annual** → `heirloom_pro_annual`, **Weekly** → `heirloom_pro_weekly`. Mark it current.
-5. Copy the public SDK keys (`goog_…`, `appl_…`) into `.env`.
+## 3. Apple
 
-## 4. Google Play Console (Android testing)
+1. Join the Apple Developer Program ($99/year).
+2. In **Certificates, Identifiers & Profiles**, confirm `com.himmat.heirloom` has **Sign in with Apple** enabled. EAS does
+   this during the first iOS build if you let it manage credentials.
+3. In **App Store Connect**, create the app with that bundle id and complete **Agreements, Tax and Banking** (paid apps
+   can't sell without it).
+4. Create the products listed in `store/app-store.md`: both subscriptions in one group, with a 3-day free trial on yearly,
+   plus the consumable report.
 
-1. Create a new app "Heirloom" with package `com.himmat.heirloom`.
-2. Create the subscriptions and in-app product with the IDs above.
-3. Billing only works after a build has been uploaded to a test track: build with the `production` profile once, upload
-   the `.aab` to **Internal testing**, and add your Gmail as a **License tester** (Setup → License testing).
+## 4. RevenueCat (project 7e22306b)
 
-## 5. Build and run on your Android phone
+1. **Apps → + New → App Store**, bundle id `com.himmat.heirloom`, and upload the In-App Purchase key from App Store Connect.
+2. **Entitlements → + New** → `pro`.
+3. **Products**: add `heirloom_pro_annual` and `heirloom_pro_monthly`, attached to `pro`. Add `heirloom_item_report`, attached
+   to no entitlement.
+4. **Offerings → default**: Annual and Monthly packages. Mark it current.
+5. Copy the public key (`appl_…`) into `.env`.
+
+## 5. Build and test on an iPhone (no Mac needed)
+
+Add the `.env` values to EAS, then build. You'll need a borrowed iPhone for TestFlight:
 
 ```bash
-npx eas-cli@latest init                       # links to a new EAS project under himmat12singh
-npx eas-cli@latest env:push --environment development --path .env   # or add them on expo.dev
+npx eas-cli@latest env:push --environment production --path .env
+npx eas-cli@latest build --profile production --platform ios     # asks you to log in to Apple the first time
+npx eas-cli@latest submit --platform ios                         # uploads to TestFlight
+```
+
+Test purchases with a Sandbox Apple ID. Go through the checklist at the end of `store/app-store.md`, then submit for review
+in App Store Connect.
+
+## Testing on Android meanwhile
+
+```bash
 npx eas-cli@latest build --profile development --platform android
-# install the APK from the build page, then:
 npx expo start --dev-client
 ```
 
-Expo Go won't work, because RevenueCat needs native code; use the development build. Without RevenueCat keys the app
-still runs: the paywall shows a notice, and in development the PDF report can be created for free so you can test it.
+A dev build reads your local `.env`, so config changes need no rebuild. Expo Go won't work, because RevenueCat is native
+code. Sign in with Apple is hidden on Android. Purchases there need a Play Console app and a RevenueCat Play app.
 
-## 6. iPhone (later, no Mac needed)
+## Not built yet
 
-1. Join the Apple Developer Program ($99/yr) and create the app in App Store Connect with bundle id `com.himmat.heirloom`.
-2. Create the same subscriptions (one subscription group) and the consumable in App Store Connect; add the App Store
-   app in RevenueCat with its In-App Purchase key.
-3. `npx eas-cli@latest build --profile production --platform ios` then `npx eas-cli@latest submit -p ios` → test with
-   TestFlight on any iPhone (a friend's works) using a Sandbox Apple ID.
-
-## Before submitting to the stores
-
-- Replace the placeholder icon and splash in `assets/` (currently Expo defaults).
-- Publish a privacy policy and set `EXPO_PUBLIC_PRIVACY_URL`, `EXPO_PUBLIC_SUPPORT_EMAIL`.
-- App Store privacy labels: photos are sent to our server and Anthropic for analysis and are not stored on the server;
-  the collection is stored in Firestore under an anonymous id.
-- Accounts are anonymous. If someone deletes the app, their collection is lost (purchases restore through RevenueCat).
-  Adding Sign in with Apple / Google is the next step for keeping collections across devices.
+- Google sign-in (needed before an Android launch, so Android users can back up).
+- Native App Check, which would make free-scan abuse harder.

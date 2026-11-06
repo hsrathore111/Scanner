@@ -28,11 +28,14 @@ function packageCopy(pkg: PurchasesPackage) {
   }
 }
 
-function trialText(pkg: PurchasesPackage | undefined): string | null {
+function trialInfo(pkg: PurchasesPackage | undefined): { label: string; chargeDate: string } | null {
   const intro = pkg?.product.introPrice;
   if (!intro || intro.price !== 0) return null;
+  const n = intro.periodNumberOfUnits;
   const unit = intro.periodUnit.toLowerCase();
-  return `${intro.periodNumberOfUnits}-${unit} free trial`;
+  const days = n * (({ day: 1, week: 7, month: 30, year: 365 } as Record<string, number>)[unit] ?? 1);
+  const chargeDate = new Date(Date.now() + days * 86_400_000).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  return { label: `${n}-${unit} free trial`, chargeDate };
 }
 
 export default function Paywall() {
@@ -69,7 +72,7 @@ export default function Paywall() {
   };
 
   const chosen = packages?.find((p) => p.identifier === selected);
-  const trial = trialText(chosen);
+  const trial = trialInfo(chosen);
 
   const onBuy = async () => {
     if (!chosen) return;
@@ -109,15 +112,17 @@ export default function Paywall() {
         <View style={{ gap: Space.sm }}>
           {error ? <T style={{ color: Colors.danger, textAlign: 'center' }}>{error}</T> : null}
           <Button
-            title={trial ? `Start ${trial}` : 'Continue'}
+            title={trial ? `Start ${trial.label}` : 'Continue'}
             onPress={onBuy}
             loading={busy === 'buy'}
             disabled={!chosen || !!busy}
           />
           <T variant="caption" style={{ textAlign: 'center' }}>
             {trial && chosen
-              ? `Then ${packageCopy(chosen).subtitle.split(' · ')[0]}. Cancel anytime in Settings.`
-              : 'Auto-renews. Cancel anytime in Settings.'}
+              ? `Free until ${trial.chargeDate}, then ${packageCopy(chosen).subtitle.split(' · ')[0]}. Cancel before then in your Apple ID settings and you pay nothing.`
+              : chosen
+                ? `${packageCopy(chosen).subtitle.split(' · ')[0]}, renews automatically until canceled.`
+                : ''}
           </T>
           <View style={styles.legalRow}>
             <Pressable onPress={onRestore} disabled={!!busy} hitSlop={8}>
@@ -142,10 +147,10 @@ export default function Paywall() {
       <T variant="display">Know what it's worth before you sell, donate or toss it.</T>
 
       <View style={{ gap: Space.md }}>
-        <Bullet icon="infinite-outline">Unlimited scans with real comparable sales</Bullet>
+        <Bullet icon="infinite-outline">Unlimited scans, checked against verified sold prices</Bullet>
         <Bullet icon="albums-outline">Your collection, with its total estimated value</Bullet>
-        <Bullet icon="storefront-outline">Where to sell each item, typical fees and tips that get a better price</Bullet>
-        <Bullet icon="search-outline">Close-up re-checks of maker's marks and labels</Bullet>
+        <Bullet icon="storefront-outline">Where to sell each item and what you'd keep after fees</Bullet>
+        <Bullet icon="create-outline">Ready-to-paste listings, and a spreadsheet of everything you own</Bullet>
       </View>
 
       {source !== 'onboarding' && freeScansLeft === 0 ? (

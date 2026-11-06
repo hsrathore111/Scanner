@@ -24,6 +24,9 @@ export const firebaseConfig = {
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
 };
 
+/** False until EXPO_PUBLIC_FIREBASE_* values are set. The app then shows a setup screen. */
+export const firebaseConfigured = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
+
 export const LEGAL = {
   privacyUrl: process.env.EXPO_PUBLIC_PRIVACY_URL ?? 'https://example.com/privacy',
   termsUrl: process.env.EXPO_PUBLIC_TERMS_URL ?? 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/',

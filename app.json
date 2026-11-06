@@ -1,23 +1,24 @@
 {
   "expo": {
     "name": "Heirloom",
-    "slug": "heirloom-app",
+    "slug": "scanner",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "heirloom",
     "userInterfaceStyle": "light",
     "ios": {
-      "icon": "./assets/expo.icon",
       "bundleIdentifier": "com.himmat.heirloom",
       "supportsTablet": true,
       "config": {
         "usesNonExemptEncryption": false
-      }
+      },
+      "usesAppleSignIn": true,
+      "requireFullScreen": true
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#F6F1E9",
+        "backgroundColor": "#1E1914",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -51,12 +52,23 @@
           "cameraPermission": "Heirloom uses the camera to photograph items you want identified and valued.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-apple-authentication"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
-    "owner": "himmat12singh"
+    "owner": "himmat12singh",
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "2621b296-97d9-47da-bc8d-63b5eb27b4bb"
+      }
+    }
   }
 }
