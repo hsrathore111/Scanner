@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Scan counters live here and are written only by the appraiseItem function.
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+
+      // Appraisals are created by the function. The owner may add notes / local photo
+      // names, but can't change the appraisal or counters.
+      match /items/{itemId} {
+        allow read, delete: if request.auth != null && request.auth.uid == uid;
+        allow create: if false;
+        allow update: if request.auth != null && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['photos', 'note', 'reportPurchasedAt']);
+      }
+    }
+  }
+}
