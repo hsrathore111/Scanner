@@ -11,19 +11,19 @@ const STEPS: { icon: IconName; kicker: string; title: string; body: string }[] =
     icon: 'camera-outline',
     kicker: 'Snap it',
     title: "What's in the attic might be worth something.",
-    body: "Photograph any old item, from Grandma's china to a flea-market find, and learn what it is in under a minute.",
+    body: "Photograph any old item, from Grandma's china to a flea-market find, and learn what it is in about a minute.",
   },
   {
     icon: 'pricetags-outline',
     kicker: 'See the evidence',
     title: 'A value range backed by real sales.',
-    body: "We search recent sold listings and auction results, then show you the comparables, a price range and how confident we are. You don't get one made-up number.",
+    body: "We check recent sold prices, then show you the real sales behind every estimate and how sure we are. We flag common look-alikes too, like silver plate that passes for sterling.",
   },
   {
     icon: 'storefront-outline',
     kicker: 'Sell smarter',
     title: 'Know where to sell, and for how much.',
-    body: 'Get the best places to sell, what the fees look like, and the details buyers care about. Keep everything in a collection with its total value.',
+    body: 'See what you would keep after fees, get a ready-to-paste listing, and track your whole collection and its total value.',
   },
 ];
 

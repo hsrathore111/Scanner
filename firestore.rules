@@ -1,20 +1,20 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Scan counters live here and are written only by the appraiseItem function.
+    // Scan counters and appraisals are written only by Cloud Functions, so a client
+    // can't reset its free scans, forge an appraisal or unlock a report without paying.
     match /users/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow write: if false;
 
-      // Appraisals are created by the function. The owner may add notes / local photo
-      // names, but can't change the appraisal or counters.
       match /items/{itemId} {
-        allow read, delete: if request.auth != null && request.auth.uid == uid;
-        allow create: if false;
-        allow update: if request.auth != null && request.auth.uid == uid
-          && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['photos', 'note', 'reportPurchasedAt']);
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
       }
+    }
+    // Everything else, including appraisalJobs, is server-only.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

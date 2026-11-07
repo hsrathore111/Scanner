@@ -1,4 +1,4 @@
-import type { Confidence } from './types';
+import type { Confidence, Recommendation } from './types';
 
 const usd0 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
@@ -28,3 +28,16 @@ export const comparableStatusLabel: Record<string, string> = {
   auction_result: 'Auction',
   price_guide: 'Guide',
 };
+
+export const recommendationLabel: Record<Recommendation, string> = {
+  sell: 'Worth selling',
+  keep: 'Worth keeping',
+  donate: 'Better to donate',
+  get_appraised: 'See a professional appraiser',
+};
+
+/** What the seller keeps from the typical sale price after marketplace fees. */
+export function netAfterFees(low: number, high: number, feePercent: number): number {
+  const fee = Math.min(100, Math.max(0, feePercent));
+  return ((low + high) / 2) * (1 - fee / 100);
+}

@@ -6,6 +6,7 @@ import { StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { Button, T } from '@/components/ui';
+import { firebaseConfigured } from '@/constants/config';
 import { Colors, Space } from '@/constants/theme';
 import { AppProvider, useApp } from '@/context/app-context';
 
@@ -15,8 +16,17 @@ function RootNavigator() {
   const { ready, onboarded, user, authError, retryAuth } = useApp();
 
   useEffect(() => {
-    if (ready) SplashScreen.hideAsync().catch(() => {});
+    if (ready || !firebaseConfigured) SplashScreen.hideAsync().catch(() => {});
   }, [ready]);
+
+  if (!firebaseConfigured) {
+    return (
+      <View style={styles.center}>
+        <T variant="title" style={{ textAlign: 'center' }}>Setup needed</T>
+        <T style={{ textAlign: 'center' }}>Add the Firebase values to .env. See SETUP.md, step 1.</T>
+      </View>
+    );
+  }
 
   if (!ready) return null;
 
